@@ -1,18 +1,12 @@
-<div align="center">
-
 # Machine Learning
 
-**ITI41720-1 · Machine Learning and Deep Learning · Autumn 2026**
-
-Coursework projects for ITI41720-1, built with Python, scikit-learn and XGBoost.
+Coursework projects for ITI41720-1 Machine Learning and Deep Learning (autumn 2026), built with Python, scikit-learn and XGBoost.
 
 ![Python](https://img.shields.io/badge/Python-3.13-3776AB?logo=python&logoColor=white)
 ![scikit-learn](https://img.shields.io/badge/scikit--learn-1.9-F7931E?logo=scikitlearn&logoColor=white)
 ![XGBoost](https://img.shields.io/badge/XGBoost-3.4-189FDD)
 ![pandas](https://img.shields.io/badge/pandas-3.0-150458?logo=pandas&logoColor=white)
 ![Jupyter](https://img.shields.io/badge/Jupyter-Lab-F37626?logo=jupyter&logoColor=white)
-
-</div>
 
 ---
 
@@ -27,11 +21,12 @@ Coursework projects for ITI41720-1, built with Python, scikit-learn and XGBoost.
 - [Getting started](#getting-started)
 - [Repository structure](#repository-structure)
 - [Status](#status)
+- [Acknowledgements](#acknowledgements)
 
 ## Projects
 
 | # | Project | Task | Models | Notebook |
-|---|---------|------|--------|----------|
+| --- | --- | --- | --- | --- |
 | 1 | Online shoppers purchasing intention | Binary classification on imbalanced data | CART, Random Forest, XGBoost | [`analysis.ipynb`](project1/notebooks/analysis.ipynb) |
 
 ---
@@ -45,18 +40,16 @@ The project asks whether a browsing session on an e-commerce site will end in a 
 [Online Shoppers Purchasing Intention](https://archive.ics.uci.edu/dataset/468/online+shoppers+purchasing+intention+dataset) from the UCI Machine Learning Repository (Sakar et al., 2019).
 
 | Property | Value |
-|----------|-------|
+| --- | --- |
 | Sessions | 12,330 (12,205 unique; 125 exact duplicates) |
 | Predictors | 17: 10 numeric, 6 categorical, 1 binary |
 | Target | `Revenue` (did the session end in a purchase?) |
 | Class balance | 84.5% no purchase / 15.5% purchase |
 | Missing values | None |
 
-<p align="center">
-  <img src="project1/figures/class-imbalance.png" alt="Class distribution of the Revenue target" width="480">
-</p>
+![Class distribution of the Revenue target](project1/figures/class-imbalance.png)
 
-**Feature groups**
+#### Feature groups
 
 - **Numeric:** `Administrative`, `Administrative_Duration`, `Informational`, `Informational_Duration`, `ProductRelated`, `ProductRelated_Duration`, `BounceRates`, `ExitRates`, `PageValues`, `SpecialDay`
 - **Categorical:** `Month`, `OperatingSystems`, `Browser`, `Region`, `TrafficType`, `VisitorType`
@@ -86,28 +79,28 @@ flowchart LR
 
 All numbers are cross-validated means on the training set (5 × 3 repeated stratified CV).
 
-**Baseline vs. tuned**
+#### Baseline vs. tuned
 
 | Model | PR-AUC (baseline) | PR-AUC (tuned) | ROC-AUC (tuned) | F1 (tuned) |
-|-------|:-----------------:|:--------------:|:---------------:|:----------:|
+| --- | :---: | :---: | :---: | :---: |
 | CART | 0.379 | 0.713 | 0.921 | 0.646 |
 | Random Forest | 0.735 | **0.758** | 0.933 | 0.658 |
 | XGBoost | 0.726 | 0.757 | **0.934** | **0.664** |
 
 The dummy classifier reaches 84.5% test accuracy by always predicting "no purchase". This shows why accuracy alone misleads on this dataset.
 
-**Selected hyperparameters**
+#### Selected hyperparameters
 
 | Model | Configuration |
-|-------|---------------|
+| --- | --- |
 | CART | `max_depth=6`, `min_samples_leaf=50`, `ccp_alpha=0.0` |
 | Random Forest | `n_estimators=300`, `max_features=0.3`, `max_depth=10`, `min_samples_leaf=10` |
 | XGBoost | `n_estimators=100`, `learning_rate=0.05`, `max_depth=4` |
 
-**Effect of class weighting**
+#### Effect of class weighting
 
 | Model | Precision | Recall | Balanced acc. | F1 | PR-AUC |
-|-------|:---------:|:------:|:-------------:|:--:|:------:|
+| --- | :---: | :---: | :---: | :---: | :---: |
 | CART | 0.717 | 0.590 | 0.773 | 0.646 | 0.713 |
 | CART (weighted) | 0.502 | **0.855** | 0.850 | 0.632 | 0.705 |
 | Random Forest | **0.743** | 0.591 | 0.777 | 0.658 | **0.758** |
@@ -147,7 +140,8 @@ jupyter lab project1/notebooks/analysis.ipynb
 
 The notebook loads data with relative paths (`../data/...`), so run it from the `project1/notebooks/` directory. Jupyter does this by default.
 
-> **Note:** The tuning sections run many repeated cross-validation fits with `n_jobs=1`. A full run takes some time. Set `n_jobs=-1` to use all CPU cores.
+> [!NOTE]
+> The tuning sections run many repeated cross-validation fits with `n_jobs=1`. A full run takes some time. Set `n_jobs=-1` to use all CPU cores.
 
 ## Repository structure
 
