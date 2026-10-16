@@ -60,5 +60,45 @@ if __name__ == "__main__":
     # Run a forward pass without training the model.
     output = model(x)
 
+    # Convert raw logits to probabilities between 0 and 1.
+    # Model is not trained, so these predictions does not
+    # represent actual purchase probabilities.
+    probabilities = torch.sigmoid(output)
+
+    print("Raw logits:", output)
+    print("Predicted probabilities:", probabilities)
+
+    # Artificial binary labels for testing the loss function.
+    # 1 = purchase, 0 = no purchase
+    # These labels are purely for testing purposes and do not correspond to real data.
+    y = torch.tensor([
+        [1.0],
+        [0.0],
+        [1.0],
+        [0.0],
+        [1.0],
+    ])
+
+    # Binary cross-entropy applied to raw logits.
+    # This is more numerically stable than applying a sigmoid followed by BCELoss.
+    criterion = nn.BCEWithLogitsLoss()
+
+    loss = criterion(output, y)
+
+    print("Binary cross-entropy loss:", loss.item())
+
+    # Compute gradients of the loss with respect
+    # to all trainable weights and biases
+    loss.backward()
+
+    # Inspect the gradients of the first linear layer. 
+    # These gradients indicate how the loss changes
+    # when individual weights are adjusted.
+    first_layer = model.network[0]
+
+    print("Weight shape:", first_layer.weight.shape)
+    print("Gradient shape:", first_layer.weight.grad.shape)
+    print("Mean absolute gradient:", first_layer.weight.grad.abs().mean().item())
+
     print("Input shape:", x.shape)
     print("Output shape:", output.shape)
