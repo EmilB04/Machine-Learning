@@ -83,6 +83,13 @@ if __name__ == "__main__":
     # This is more numerically stable than applying a sigmoid followed by BCELoss.
     criterion = nn.BCEWithLogitsLoss()
 
+    # Adam optimizer updates the model parameters 
+    # using gradients computed during backpropagation.
+    optimizer = torch.optim.Adam(
+        model.parameters(),
+        lr=0.001
+    )
+
     loss = criterion(output, y)
 
     print("Binary cross-entropy loss:", loss.item())
@@ -99,6 +106,22 @@ if __name__ == "__main__":
     print("Weight shape:", first_layer.weight.shape)
     print("Gradient shape:", first_layer.weight.grad.shape)
     print("Mean absolute gradient:", first_layer.weight.grad.abs().mean().item())
+
+    # Store the first layers weights before updating them 
+    weights_before = first_layer.weight.detach().clone()
+
+    # Update weights and biases using the gradients. 
+    optimizer.step()
+
+    # Measure how much the weights changed
+    weight_change = (
+        first_layer.weight.detach() - weights_before
+    ).abs().mean().item()
+
+    print("Mean absolute weight change:", weight_change)
+
+    # Clear gradients before the next training step. 
+    optimizer.zero_grad()
 
     print("Input shape:", x.shape)
     print("Output shape:", output.shape)
