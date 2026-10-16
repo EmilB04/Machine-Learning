@@ -123,5 +123,16 @@ if __name__ == "__main__":
     # Clear gradients before the next training step. 
     optimizer.zero_grad()
 
+    # Evaluate the model again after updating it's weights 
+    # No gradients are computed during this comparison.
+    with torch.no_grad():
+        updated_output = model(x)
+        updated_loss = criterion(updated_output, y)
+
+    print("Loss before update:", loss.item())
+    print("Loss after update:", updated_loss.item())
+    print("Change in loss:", updated_loss.item() - loss.item()
+    )
+
     print("Input shape:", x.shape)
     print("Output shape:", output.shape)
