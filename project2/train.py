@@ -8,6 +8,7 @@ prepare mini-batches for training.
 
 No model training is performed at this stage.
 """
+import copy
 from sklearn.metrics import average_precision_score
 import torch
 from torch.utils.data import TensorDataset, DataLoader
@@ -21,6 +22,9 @@ def main():
     Load the prepared dataset, initialize the MLP,
     and create a DataLoader for future training.
     """
+
+    # Fix the PyTorch random seed for reproducibility.
+    torch.manual_seed(42)
 
     # --------------------------------------------------
     # 1. Load and preprocess the dataset
@@ -144,42 +148,119 @@ def main():
         lr=0.001
     )
 
+   
     # --------------------------------------------------
-    # 8. Train the model for one epoch
+    # 8. Train and validate after each epoch
     # --------------------------------------------------
 
-    # Enable training mode.
-    model.train()
+    num_epochs = 20
 
-    total_loss = 0.0
+    # Store results for later analysis and plots.
+    train_losses = []
+    validation_losses = []
+    validation_aps = []
 
-    # One epoch processes all training observations once.
-    for X_batch, y_batch in train_loader:
+    # Track the model with the highest validation AP.
+    best_validation_ap = float("-inf")
+    best_epoch = 0
+    best_model_weights = None
 
-        # Clear gradients from the previous mini-batch.
-        optimizer.zero_grad()
+    
+    # Stop training after several epochs without improvement.
+    patience = 5
+    epochs_without_improvement = 0
 
-        # Forward pass: calculate raw logits.
-        logits = model(X_batch)
 
-        # Compare predictions with the actual labels.
-        loss = criterion(logits, y_batch)
+    for epoch in range(num_epochs):
 
-        # Backpropagation: calculate gradients.
-        loss.backward()
+        model.train()
+        total_loss = 0.0
 
-        # Update model parameters using Adam.
-        optimizer.step()
+        for X_batch, y_batch in train_loader:
 
-        # Accumulate the loss weighted by batch size.
-        total_loss += loss.item() * X_batch.size(0)
+            optimizer.zero_grad()
 
-    # Average training loss across all observations.
-    average_loss = total_loss / len(train_dataset)
+            logits = model(X_batch)
+            loss = criterion(logits, y_batch)
 
-    print("\nTraining results:")
-    print("Epochs completed: 1")
-    print("Average training loss:", average_loss)
+            loss.backward()
+            optimizer.step()
+
+            total_loss += loss.item() * X_batch.size(0)
+
+        average_loss = total_loss / len(train_dataset)
+
+        # Evaluate on validation data after the epoch.
+        model.eval()
+
+        with torch.no_grad():
+            validation_logits = model(X_validation)
+
+            validation_loss = criterion(
+                validation_logits,
+                y_validation
+            )
+
+            validation_probabilities = torch.sigmoid(
+                validation_logits
+            )
+
+        # Convert to NumPy for scikit-learn AP calculation.
+        y_true = y_validation.cpu().numpy().ravel()
+        y_scores = (
+            validation_probabilities.cpu().numpy().ravel()
+        )
+
+        validation_ap = average_precision_score(
+            y_true,
+            y_scores
+        )
+
+      
+        # Save the best model according to validation AP.
+        if validation_ap > best_validation_ap:
+            best_validation_ap = validation_ap
+            best_epoch = epoch + 1
+            best_model_weights = copy.deepcopy(
+                model.state_dict()
+            )
+
+            # Reset patience when validation AP improves.
+            epochs_without_improvement = 0
+        else:
+            # Count epochs without improvement.
+            epochs_without_improvement += 1
+
+
+        # Save the metrics for this epoch.
+        train_losses.append(average_loss)
+        validation_losses.append(validation_loss.item())
+        validation_aps.append(validation_ap)
+
+        print(
+            f"Epoch {epoch + 1:02d}/{num_epochs} | "
+            f"Train loss: {average_loss:.4f} | "
+            f"Val loss: {validation_loss.item():.4f} | "
+            f"Val AP: {validation_ap:.4f}"
+        )
+
+        
+        # Stop when validation AP has not improved
+        # for the specified number of epochs.
+        if epochs_without_improvement >= patience:
+            print(
+                f"\nEarly stopping triggered at "
+                f"epoch {epoch + 1}."
+            )
+            break
+
+
+    # Restore the best validation checkpoint.
+    model.load_state_dict(best_model_weights)
+
+    print("\nBest model:")
+    print("Best epoch:", best_epoch)
+    print("Best validation AP:", best_validation_ap)
 
     
     # --------------------------------------------------
