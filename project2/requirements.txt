@@ -11,3 +11,4 @@ setuptools==84.0.0
 sympy==1.14.0
 torch==2.14.1
 typing_extensions==4.16.0
+matplotlib==3.11.2
