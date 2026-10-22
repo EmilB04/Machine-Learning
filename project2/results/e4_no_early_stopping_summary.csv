@@ -1,0 +1,2 @@
+name,mean_ap,sd_ap,min_ap,max_ap,mean_val_loss,mean_best_epoch,mean_epochs_run,n_parameters,mean_seconds
+no-early-stopping,0.7089358174022586,0.004600307326047164,0.7034622464603564,0.716052459956167,0.25154233276844024,51.4,200.0,2401,39.553472679993135

@@ -77,3 +77,28 @@ Running notes on observations from the MLP experiments that should be documented
 - **Finding 4: the epoch cap.** Adam 1e-4, SGD-m0-lr0.003, SGD-m0-lr0.01, SGD-m0.5-lr0.003 and partly SGD-m0.5-lr0.01 were limited by the 200-epoch cap; their AP is a lower bound. **No re-run needed:** all of them have effective lr ≤ 0.02, and the converged settings with effective lr 0.03 already plateau at ≈ 0.705, below the winner. More epochs would make them slower routes to the same plateau, not a better optimum.
 - **Limitation (sequential tuning):** the architecture (E2) was selected under Adam lr 1e-3, and the optimizer was changed to SGD afterwards. The E2 ranking might differ under SGD. Given how flat the E2 ranking was (range 0.015), this is unlikely to change conclusions, but it must be stated in Section 7.
 - **Next:** E4 (dropout × weight decay) on L1-W32 + SGD-m0-lr0.1. With SGD, weight decay is applied as the plain L2 term in torch.optim.SGD (the Adam→AdamW switch does not apply).
+
+## 2026-10-22: E4 regularization results (real run)
+
+- **Run:** `python experiments.py --stage e4` on L1-W32 + SGD (momentum 0, lr 0.1), 5 seeds, max 200 epochs, patience 20. Grid: dropout {0, 0.2, 0.5} × weight decay {0, 1e-4, 1e-3}. For SGD, weight decay is the plain L2 term (no AdamW switch). Total runtime about 15 minutes. Files: `results/e4_runs.csv`, `e4_summary.csv`, `e4_histories.json`, `e4_selected.json`.
+- **Summary (mean validation AP ± SD over 5 seeds):**
+
+| Config | Mean AP | SD | Mean best epoch | Mean epochs run |
+|---|---|---|---|---|
+| drop0-wd0.0001 | **0.7089** | 0.0046 | 51.4 | 71.4 |
+| drop0-wd0 | 0.7084 | 0.0050 | 43.6 | 63.6 |
+| drop0-wd0.001 | 0.7065 | 0.0046 | 71.4 | 91.4 |
+| drop0.2-wd0 | 0.7037 | 0.0023 | 83.8 | 103.8 |
+| drop0.2-wd0.0001 | 0.7026 | 0.0026 | 70.4 | 90.4 |
+| drop0.2-wd0.001 | 0.6991 | 0.0042 | 94.0 | 114.0 |
+| drop0.5-wd0 | 0.6924 | 0.0048 | 91.6 | 111.6 |
+| drop0.5-wd0.0001 | 0.6920 | 0.0026 | 78.0 | 98.0 |
+| drop0.5-wd0.001 | 0.6873 | 0.0045 | 111.8 | 131.8 |
+
+- **Selected (pre-registered rule, highest mean):** dropout 0, weight decay 1e-4, mean AP 0.7089 ± 0.0046. **The gain over no regularization is not real:** +0.0005 (about 0.1 SD); per seed the differences are −0.0014, −0.0002, −0.0001, +0.0028, +0.0015 (2 of 5 positive). The report must say that regularization did not improve validation AP; the selection follows the rule but is equivalent to the unregularized model.
+- **Finding 1: dropout hurts monotonically.** Mean AP drops from 0.708 (p = 0) to 0.703 (p = 0.2) and 0.692 (p = 0.5), and the best epoch moves later (44 → 84 → 92). Interpretation: with one hidden layer of 32 units (2,401 parameters) the network has little spare capacity; dropout removes part of it on every step and adds gradient noise, so the network underfits rather than generalizes better. Dropout 0.2 does lower the seed spread (SD 0.0023 vs 0.0050).
+- **Finding 2: weight decay has no effect at 1e-4 and a slight negative effect at 1e-3** (0.7065), which also slows convergence (best epoch 71 vs 44).
+- **Finding 3: the main regularizer here is early stopping (plus the small architecture).** Together with E2 (wide networks peak at epoch 7–10 and score lower), this answers "How is overfitting related to the various choices?": overfitting is controlled by capacity and the number of epochs, not by dropout or weight decay.
+- **No-early-stopping run (overfitting curve):** the first version was built from the E3 selection (weight decay 0) by mistake and reproduced drop0-wd0 seed by seed. Fixed with a separate stage `e4curve` that loads `e4_selected.json`, and re-run with `python experiments.py --stage e4curve`. The corrected run reproduces drop0-wd0.0001 seed by seed (0.7077, 0.7098, 0.7076, 0.7035, 0.7161; mean 0.7089 ± 0.0046), which confirms the fix.
+- **Finding 4: patience 20 was sufficient.** Trained for the full 200 epochs, every seed has the same best epoch as with early stopping (45, 64, 45, 49, 54). No seed found a higher validation AP later than 20 epochs after its peak, so early stopping did not cut off any later improvement. The reported AP of this run is the best epoch's AP (best weights are restored); the overfitting evidence for the report is in `e4_no_early_stopping_histories.json` (training vs validation loss after epoch ~50), to be plotted.
+- **Final validation-selected configuration for the refit:** 73-32-1, ReLU, SGD lr 0.1 momentum 0, weight decay 1e-4, no dropout, batch 64; epoch count for the train+val refit from the mean best epoch (≈ 51).

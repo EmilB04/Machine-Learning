@@ -7,6 +7,7 @@ Stages (each builds on the winner of the previous one):
     e2    Architecture: 1-3 hidden layers x widths 16/32/64/128
     e3    Optimizer: Adam vs SGD with momentum, several learning rates, cosine schedule
     e4    Regularization: dropout x weight decay, plus one run without early stopping
+    e4curve  Only the run without early stopping, for the configuration selected in E4
     diag  Vanishing gradients: deep sigmoid network vs deep ReLU network
 
 Usage:
@@ -263,9 +264,16 @@ def stage_e4(splits, seeds, output_dir, base):
     name, reason = select_highest_mean(summary)
     save_selected("e4", name, dict(named)[name], summary, output_dir, reason)
 
-    # Same tuned setup without early stopping, to show the overfitting curve.
-    # Not part of the selection: it only documents what happens after the best epoch.
-    no_stop = [("no-early-stopping", replace(tuned, patience=None, max_epochs=base.max_epochs))]
+    stage_e4_curve(splits, seeds, output_dir, base)
+
+
+def stage_e4_curve(splits, seeds, output_dir, base):
+    # The configuration selected in E4, trained without early stopping, to show
+    # the overfitting curve. Not part of the selection: it only documents what
+    # happens after the best epoch. The reported AP is still the best epoch's AP
+    # (best weights are restored), so the histories are what matter here.
+    final = load_selected("e4", output_dir)
+    no_stop = [("no-early-stopping", replace(final, patience=None, max_epochs=base.max_epochs))]
     summary_no_stop = run_stage("e4_no_early_stopping", no_stop, splits, seeds, output_dir)
     print_summary("e4_no_early_stopping", summary_no_stop)
 
@@ -283,7 +291,7 @@ def stage_diag(splits, seeds, output_dir, base):
     print_summary("diag", summary)
 
 
-STAGES = {"e2": stage_e2, "e3": stage_e3, "e4": stage_e4, "diag": stage_diag}
+STAGES = {"e2": stage_e2, "e3": stage_e3, "e4": stage_e4, "e4curve": stage_e4_curve, "diag": stage_diag}
 
 
 def main() -> None:
@@ -305,7 +313,8 @@ def main() -> None:
         base = replace(BASE, max_epochs=5, patience=3)
 
     splits = prepare_data()
-    stages = list(STAGES) if args.stage == "all" else [args.stage]
+    # e4 already runs e4curve at the end, so "all" does not list it separately.
+    stages = ["e2", "e3", "e4", "diag"] if args.stage == "all" else [args.stage]
     for stage in stages:
         print(f"\n===== Stage {stage} =====")
         STAGES[stage](splits, seeds, output_dir, base)

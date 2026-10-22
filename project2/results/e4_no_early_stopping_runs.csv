@@ -1,0 +1,6 @@
+stage,name,seed,hidden_sizes,activation,dropout,optimizer,learning_rate,momentum,weight_decay,scheduler,patience,best_validation_ap,best_validation_loss,best_epoch,epochs_run,n_parameters,seconds
+e4_no_early_stopping,no-early-stopping,0,32,relu,0.0,sgd,0.1,0.0,0.0001,none,,0.707680100466508,0.25204893946647644,45,200,2401,44.527269200014416
+e4_no_early_stopping,no-early-stopping,1,32,relu,0.0,sgd,0.1,0.0,0.0001,none,,0.7098359597555922,0.25277990102767944,64,200,2401,37.46392049995484
+e4_no_early_stopping,no-early-stopping,2,32,relu,0.0,sgd,0.1,0.0,0.0001,none,,0.7076483203726697,0.24983152747154236,45,200,2401,37.100152100028936
+e4_no_early_stopping,no-early-stopping,3,32,relu,0.0,sgd,0.1,0.0,0.0001,none,,0.7034622464603564,0.253277987241745,49,200,2401,39.052216099982616
+e4_no_early_stopping,no-early-stopping,4,32,relu,0.0,sgd,0.1,0.0,0.0001,none,,0.716052459956167,0.249773308634758,54,200,2401,39.62380549998488
