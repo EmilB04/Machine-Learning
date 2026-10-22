@@ -1,0 +1,23 @@
+{
+  "stage": "e3",
+  "name": "SGD-m0-lr0.1",
+  "reason": "highest mean validation AP over seeds",
+  "mean_ap": 0.7084087497525711,
+  "sd_ap": 0.005026586884098876,
+  "config": {
+    "hidden_sizes": [
+      32
+    ],
+    "activation": "relu",
+    "dropout": 0.0,
+    "optimizer": "sgd",
+    "learning_rate": 0.1,
+    "momentum": 0.0,
+    "weight_decay": 0.0,
+    "scheduler": "none",
+    "batch_size": 64,
+    "max_epochs": 200,
+    "patience": 20,
+    "pos_weight": null
+  }
+}
