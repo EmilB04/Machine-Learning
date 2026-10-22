@@ -1,0 +1,23 @@
+{
+  "stage": "e2",
+  "name": "L1-W32",
+  "reason": "fewest parameters among 6 configuration(s) with mean AP >= 0.6942 (best mean minus one SD of L2-W32)",
+  "mean_ap": 0.6942601844983529,
+  "sd_ap": 0.00493739028693348,
+  "config": {
+    "hidden_sizes": [
+      32
+    ],
+    "activation": "relu",
+    "dropout": 0.0,
+    "optimizer": "adam",
+    "learning_rate": 0.001,
+    "momentum": 0.0,
+    "weight_decay": 0.0,
+    "scheduler": "none",
+    "batch_size": 64,
+    "max_epochs": 200,
+    "patience": 20,
+    "pos_weight": null
+  }
+}
