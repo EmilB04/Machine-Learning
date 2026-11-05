@@ -134,3 +134,34 @@ Running notes on observations from the MLP experiments that should be documented
   - **Deep ReLU overfits severely without early stopping:** AP peaks at ≈ 0.685–0.69 around epochs 8–14, then collapses to ≈ 0.58–0.60 by epoch 30 and stays there with large seed variance. With 25,601 parameters, the network overfits far harder than the selected 2,401-parameter model (which only drops from 0.705 to 0.655 over 200 epochs).
   - Without early stopping, the sigmoid network ends higher at epoch 100 (0.663) than the ReLU network (≈ 0.57); with early stopping (best epoch), ReLU is better (0.692 vs 0.663). Report the best-epoch numbers, and use the curves to show why early stopping matters more for the larger ReLU network.
 - **fig_e3_effective_lr:** the three momentum curves lie on top of each other once plotted against the effective learning rate. A plateau from about 0.02–0.3 lies above the best Adam line (0.6964), and every point at or below 0.02 is hollow (cap-limited). This is the key figure for the momentum finding in E3.
+
+## 2026-11-05: E0 input coding (log1p) and E6 PageValues sensitivity
+
+- **Branch:** `feature/e0-e6-input-coding`. `prepare_data()` got two optional arguments (`log_features`, `drop_features`); with the defaults the output is bit-identical to `main` (checked for train, validation, test and the final train+val data). `prepare_final_data()` inherits the options from the splits it gets.
+- **Run:** `python experiments.py --stage e0`, then `--stage e6`. Both use the E4 configuration (73–32–1, ReLU, SGD lr 0.1, momentum 0, weight decay 1e-4, no dropout, batch 64, max 200 epochs, patience 20), 5 seeds, validation AP only. Files: `results/e0_*`, `results/e6_*`.
+- **Reproduction check:** the `standard` row of E0 reproduces the E4 winner seed by seed (0.7077, 0.7098, 0.7076, 0.7035, 0.7161; mean 0.7089 ± 0.0046).
+
+### E0: standardization vs log1p + standardization
+
+| Input coding | Mean AP | SD | Mean best epoch |
+|---|---|---|---|
+| log1p on PageValues and the three durations, then standardization | **0.7205** | 0.0024 | 39.8 |
+| Standardization only (baseline) | 0.7089 | 0.0046 | 51.4 |
+
+- **Selected (rule fixed before the run):** log1p, because 0.7205 ≥ 0.7135 (standard mean plus one SD). Per-seed differences (log1p minus standard): +0.0107, +0.0099, +0.0168, +0.0159, +0.0046. Positive for all five seeds, mean +0.0116 (about 2.5 SD of the baseline).
+- **Finding 1: input coding gives the largest single gain in the tuning.** It is comparable to Adam → SGD in E3 (+0.012) and far above architecture (E2 range 0.015 across all 12 networks) or regularization (E4, no gain). It also lowers seed spread (SD 0.0024 vs 0.0046) and speeds up training (best epoch 40 vs 51).
+- **Interpretation:** the four variables are strongly right-skewed (skewness 5.6–7.5 in the deduplicated data; after log1p −1.4 to 1.9). With standardization alone, a few extreme sessions dominate the scale and most sessions sit in a narrow range near the mean, so the first layer has to resolve small input differences. log1p compresses the tail and spreads the bulk. Trees are invariant to monotone transformations of a single feature, so this choice matters for the MLP but would not change CART, RF or XGBoost splits. This is a point for section 3.3 and the comparison with trees.
+- **Consequence for the final model:** the final configuration now uses log1p coding. The refit epoch count should come from the log1p runs (mean best epoch 39.8 ≈ 40), not 51. Any later experiment that builds on the final model (E5, architecture check under SGD, final test run) should use `prepare_data(log_features=LOG1P_FEATURES)`.
+- **Limitation:** E0 ran after architecture, optimizer and regularization were selected with standard coding. The ideal order would test input coding first. Same sequential-tuning caveat as E2/E3.
+
+### E6: with vs without PageValues (sensitivity analysis, no selection)
+
+| Input | Features | Mean AP | SD | Mean best epoch |
+|---|---|---|---|---|
+| With PageValues (log1p coding) | 73 | 0.7205 | 0.0024 | 39.8 |
+| Without PageValues | 72 | 0.3719 | 0.0038 | 65.0 |
+
+- **Drop:** −0.3486 on average; per seed −0.3406, −0.3524, −0.3526, −0.3488, −0.3487. Practically identical for every seed.
+- **Finding 2: the MLP depends almost entirely on PageValues.** Without it, AP falls to 0.372, about 2.4× the validation purchase rate (0.156), so the other 16 variables carry some signal but little. The network also needs more epochs (65 vs 40).
+- **Comparison with Project 1 (descriptive only):** removing PageValues reduced Random Forest's cross-validated AP from 0.758 to 0.385. The MLP ends at a very similar level (0.372). Different data (deduplicated), different split and validation vs cross-validation, so this is not a paired comparison. The point is that both model families rely on the same single variable to the same degree.
+- **For the report:** whether PageValues is available at prediction time cannot be verified from the dataset documentation. Report the dependence and its deployment implication; do not call it leakage.
