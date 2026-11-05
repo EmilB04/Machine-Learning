@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.preprocessing import FunctionTransformer, OneHotEncoder, StandardScaler
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -45,6 +46,14 @@ BINARY_FEATURES = ["Weekend"]
 FEATURES = CATEGORICAL_FEATURES + NUMERIC_FEATURES + BINARY_FEATURES
 EXPECTED_COLUMNS = set(FEATURES + [TARGET])
 
+# E0: right-skewed, non-negative variables that get log1p before standardization.
+LOG1P_FEATURES = [
+    "PageValues",
+    "Administrative_Duration",
+    "Informational_Duration",
+    "ProductRelated_Duration",
+]
+
 
 @dataclass
 class DataSplits:
@@ -62,6 +71,8 @@ class DataSplits:
     feature_names: np.ndarray
     preprocessor: ColumnTransformer
     audit: dict[str, object]
+    # Input-coding options used for this split (E0/E6); empty means the baseline.
+    options: dict[str, list[str]] = field(default_factory=dict)
 
 
 @dataclass
@@ -129,30 +140,68 @@ def audit_data(data: pd.DataFrame) -> dict[str, object]:
     }
 
 
-def make_preprocessor() -> ColumnTransformer:
-    """Build the MLP transformer; all learned statistics come from training data."""
+def _check_options(log_features, drop_features) -> tuple[list[str], list[str]]:
+    log_features = list(log_features or [])
+    drop_features = list(drop_features or [])
+    unknown_log = sorted(set(log_features) - set(NUMERIC_FEATURES))
+    unknown_drop = sorted(set(drop_features) - set(FEATURES))
+    if unknown_log:
+        raise ValueError(f"log1p is only for numeric features; got {unknown_log}")
+    if unknown_drop:
+        raise ValueError(f"Unknown features to drop: {unknown_drop}")
+    return log_features, drop_features
+
+
+def make_preprocessor(log_features=(), drop_features=()) -> ColumnTransformer:
+    """Build the MLP transformer; all learned statistics come from training data.
+
+    With the default arguments the transformer is exactly the baseline
+    (one-hot + standardization). log_features get log1p before standardization
+    (E0); drop_features are left out of the input altogether (E6).
+    """
+    log_features, drop_features = _check_options(log_features, drop_features)
+    categorical = [f for f in CATEGORICAL_FEATURES if f not in drop_features]
+    numeric = [f for f in NUMERIC_FEATURES if f not in drop_features and f not in log_features]
+    logged = [f for f in NUMERIC_FEATURES if f not in drop_features and f in log_features]
+    binary = [f for f in BINARY_FEATURES if f not in drop_features]
+
+    transformers = [
+        (
+            "categorical",
+            OneHotEncoder(handle_unknown="ignore", sparse_output=False, dtype=np.float32),
+            categorical,
+        ),
+        ("numeric", StandardScaler(), numeric),
+    ]
+    if logged:
+        log_then_scale = Pipeline([
+            ("log1p", FunctionTransformer(np.log1p, feature_names_out="one-to-one")),
+            ("scale", StandardScaler()),
+        ])
+        transformers.append(("numeric_log1p", log_then_scale, logged))
+    transformers.append(("binary", "passthrough", binary))
+
     return ColumnTransformer(
-        transformers=[
-            (
-                "categorical",
-                OneHotEncoder(handle_unknown="ignore", sparse_output=False, dtype=np.float32),
-                CATEGORICAL_FEATURES,
-            ),
-            ("numeric", StandardScaler(), NUMERIC_FEATURES),
-            ("binary", "passthrough", BINARY_FEATURES),
-        ],
+        transformers=transformers,
         remainder="drop",
         verbose_feature_names_out=True,
     )
 
 
-def prepare_data(data_path: str | Path = DEFAULT_DATA_PATH) -> DataSplits:
+def prepare_data(
+    data_path: str | Path = DEFAULT_DATA_PATH,
+    log_features=(),
+    drop_features=(),
+) -> DataSplits:
     """Create a stratified test split and a separate validation split.
 
     The 80% training partition is divided 75/25 into train and validation,
     yielding 60/20/20 overall. The default Project 2 CSV is a separate copy
     with exact duplicate rows removed; Project 1's original data stays intact.
+    log_features and drop_features change only the input coding (E0, E6);
+    the split itself is the same for every option.
     """
+    log_features, drop_features = _check_options(log_features, drop_features)
     data = load_data(data_path)
     audit = audit_data(data)
 
@@ -174,7 +223,7 @@ def prepare_data(data_path: str | Path = DEFAULT_DATA_PATH) -> DataSplits:
         random_state=RANDOM_STATE,
     )
 
-    preprocessor = make_preprocessor()
+    preprocessor = make_preprocessor(log_features, drop_features)
     X_train_processed = preprocessor.fit_transform(X_train).astype(np.float32, copy=False)
     X_validation_processed = preprocessor.transform(X_validation).astype(np.float32, copy=False)
     X_test_processed = preprocessor.transform(X_test).astype(np.float32, copy=False)
@@ -214,6 +263,7 @@ def prepare_data(data_path: str | Path = DEFAULT_DATA_PATH) -> DataSplits:
         feature_names=preprocessor.get_feature_names_out(),
         preprocessor=preprocessor,
         audit=audit,
+        options={"log_features": log_features, "drop_features": drop_features},
     )
 
 
@@ -226,6 +276,8 @@ def prepare_final_data(
     Use only after architecture, hyperparameters, and training duration have
     been selected with the train/validation partitions. The test partition is
     transformed with this newly fitted preprocessor and remains held out.
+    The input coding (log1p, dropped features) is taken from `splits`, so
+    pass the splits made with the options selected in E0.
     """
     data = load_data(data_path)
     train_indices = splits.train_indices.append(splits.validation_indices)
@@ -234,7 +286,10 @@ def prepare_final_data(
     X_test = data.loc[splits.test_indices, FEATURES]
     y_test = data.loc[splits.test_indices, TARGET].astype(np.int64)
 
-    preprocessor = make_preprocessor()
+    preprocessor = make_preprocessor(
+        splits.options.get("log_features", ()),
+        splits.options.get("drop_features", ()),
+    )
     X_train_processed = preprocessor.fit_transform(X_train).astype(np.float32, copy=False)
     X_test_processed = preprocessor.transform(X_test).astype(np.float32, copy=False)
 

@@ -8,6 +8,8 @@ Stages (each builds on the winner of the previous one):
     e3    Optimizer: Adam vs SGD with momentum, several learning rates, cosine schedule
     e4    Regularization: dropout x weight decay, plus one run without early stopping
     e4curve  Only the run without early stopping, for the configuration selected in E4
+    e0    Input coding on the E4 configuration: standardization vs log1p + standardization
+    e6    Sensitivity: the E4 configuration with and without PageValues (no selection)
     diag  Vanishing gradients: deep sigmoid network vs deep ReLU network
 
 Usage:
@@ -15,13 +17,15 @@ Usage:
     python experiments.py --stage e2
     python experiments.py --stage e3
     python experiments.py --stage e4
+    python experiments.py --stage e0
+    python experiments.py --stage e6
     python experiments.py --stage diag
 
 Output per stage in results/ (results/quick/ with --quick):
     <stage>_runs.csv        one row per configuration and seed
     <stage>_summary.csv     mean and standard deviation over seeds
     <stage>_histories.json  per-epoch losses, AP and gradient norms
-    <stage>_selected.json   the configuration carried forward (e2, e3, e4)
+    <stage>_selected.json   the configuration carried forward (e2, e3, e4, e0)
 """
 
 from __future__ import annotations
@@ -33,7 +37,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from preprocessing import prepare_data
+from preprocessing import LOG1P_FEATURES, prepare_data
 from training import TrainConfig, train_model
 
 
@@ -49,16 +53,22 @@ BASE = TrainConfig(max_epochs=200, patience=20)
 # Running and saving
 # --------------------------------------------------------------------------
 
-def run_stage(stage, named_configs, splits, seeds, output_dir):
-    """Train every (name, config) pair with every seed and save the results."""
+def run_stage(stage, named_configs, splits, seeds, output_dir, splits_by_name=None):
+    """Train every (name, config) pair with every seed and save the results.
+
+    splits_by_name lets a configuration use its own input coding (E0, E6);
+    configurations not listed there use `splits`.
+    """
     rows = []
     histories = {}
+    splits_by_name = splits_by_name or {}
 
     total = len(named_configs) * len(seeds)
     done = 0
     for name, config in named_configs:
+        config_splits = splits_by_name.get(name, splits)
         for seed in seeds:
-            result = train_model(config, splits, seed=seed)
+            result = train_model(config, config_splits, seed=seed)
             done += 1
             print(
                 f"[{stage}] {done:>3}/{total}  {name:<24} seed {seed}  "
@@ -80,6 +90,7 @@ def run_stage(stage, named_configs, splits, seeds, output_dir):
                 "weight_decay": config.weight_decay,
                 "scheduler": config.scheduler,
                 "patience": config.patience,
+                "input_features": config_splits.X_train.shape[1],
                 "best_validation_ap": result["best_validation_ap"],
                 "best_validation_loss": result["best_validation_loss"],
                 "best_epoch": result["best_epoch"],
@@ -291,7 +302,88 @@ def stage_diag(splits, seeds, output_dir, base):
     print_summary("diag", summary)
 
 
-STAGES = {"e2": stage_e2, "e3": stage_e3, "e4": stage_e4, "e4curve": stage_e4_curve, "diag": stage_diag}
+def load_input_coding(output_dir) -> list[str]:
+    """Features that get log1p according to the E0 selection."""
+    path = output_dir / "e0_selected.json"
+    if not path.is_file():
+        raise FileNotFoundError(f"{path} not found. Run --stage e0 first.")
+    with open(path, encoding="utf-8") as file:
+        return json.load(file)["log_features"]
+
+
+def paired_differences(stage, output_dir, name_a, name_b):
+    """Per-seed difference in validation AP (a minus b); seeds pair the runs."""
+    runs = pd.read_csv(output_dir / f"{stage}_runs.csv")
+    ap = runs.pivot(index="seed", columns="name", values="best_validation_ap")
+    return ap[name_a] - ap[name_b]
+
+
+def stage_e0(splits, seeds, output_dir, base):
+    # The E4 configuration, trained on two input codings of the same split.
+    # Only the preprocessing differs; the model, optimizer and seeds are fixed.
+    final = replace(load_selected("e4", output_dir), max_epochs=base.max_epochs, patience=base.patience)
+    variants = {
+        "standard": splits,
+        "log1p": prepare_data(log_features=LOG1P_FEATURES),
+    }
+    named = [(name, final) for name in variants]
+    summary = run_stage("e0", named, splits, seeds, output_dir, splits_by_name=variants)
+    print_summary("e0", summary)
+
+    # Selection rule, fixed before the run: switch to log1p only if its mean AP
+    # is at least one standard deviation (of the standard coding) higher.
+    row = summary.set_index("name")
+    threshold = row.loc["standard", "mean_ap"] + row.loc["standard", "sd_ap"]
+    use_log = row.loc["log1p", "mean_ap"] >= threshold
+    name = "log1p" if use_log else "standard"
+    reason = (
+        f"log1p mean AP {row.loc['log1p', 'mean_ap']:.4f} "
+        f"{'>=' if use_log else '<'} {threshold:.4f} (standard mean plus one SD)"
+    )
+    differences = paired_differences("e0", output_dir, "log1p", "standard")
+    print("\n[e0] log1p minus standard, per seed:", " ".join(f"{d:+.4f}" for d in differences))
+
+    save_selected("e0", name, final, summary, output_dir, reason)
+    path = output_dir / "e0_selected.json"
+    with open(path, encoding="utf-8") as file:
+        payload = json.load(file)
+    payload["log_features"] = list(LOG1P_FEATURES) if use_log else []
+    with open(path, "w", encoding="utf-8") as file:
+        json.dump(payload, file, indent=2)
+
+
+def stage_e6(splits, seeds, output_dir, base):
+    # Sensitivity analysis, not a selection step: the final model keeps PageValues.
+    # Both runs use the input coding selected in E0.
+    final = replace(load_selected("e4", output_dir), max_epochs=base.max_epochs, patience=base.patience)
+    log_features = load_input_coding(output_dir)
+    variants = {
+        "with-PageValues": prepare_data(log_features=log_features),
+        "without-PageValues": prepare_data(
+            log_features=[f for f in log_features if f != "PageValues"],
+            drop_features=["PageValues"],
+        ),
+    }
+    named = [(name, final) for name in variants]
+    summary = run_stage("e6", named, splits, seeds, output_dir, splits_by_name=variants)
+    print_summary("e6", summary)
+    differences = paired_differences("e6", output_dir, "without-PageValues", "with-PageValues")
+    print(
+        "\n[e6] without minus with PageValues, per seed:",
+        " ".join(f"{d:+.4f}" for d in differences),
+        f"(mean {differences.mean():+.4f})",
+    )
+
+
+STAGES = {
+    "e2": stage_e2,
+    "e3": stage_e3,
+    "e4": stage_e4,
+    "e4curve": stage_e4_curve,
+    "e0": stage_e0,
+    "e6": stage_e6,
+    "diag": stage_diag,
+}
 
 
 def main() -> None:
@@ -314,7 +406,7 @@ def main() -> None:
 
     splits = prepare_data()
     # e4 already runs e4curve at the end, so "all" does not list it separately.
-    stages = ["e2", "e3", "e4", "diag"] if args.stage == "all" else [args.stage]
+    stages = ["e2", "e3", "e4", "e0", "e6", "diag"] if args.stage == "all" else [args.stage]
     for stage in stages:
         print(f"\n===== Stage {stage} =====")
         STAGES[stage](splits, seeds, output_dir, base)
