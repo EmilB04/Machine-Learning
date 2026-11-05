@@ -32,6 +32,13 @@ from dataclasses import asdict, replace
 from pathlib import Path
 
 import pandas as pd
+import torch
+from sklearn.metrics import (
+    average_precision_score,
+    precision_score,
+    recall_score,
+    f1_score,
+)
 
 from preprocessing import prepare_data
 from training import TrainConfig, train_model
@@ -290,8 +297,146 @@ def stage_diag(splits, seeds, output_dir, base):
     summary = run_stage("diag", named, splits, seeds, output_dir)
     print_summary("diag", summary)
 
+def stage_e5(splits, seeds, output_dir, base):
+    """E5: cCompare class weighting on validation data."""
 
-STAGES = {"e2": stage_e2, "e3": stage_e3, "e4": stage_e4, "e4curve": stage_e4_curve, "diag": stage_diag}
+    # Load the model configuration selected in E4.
+    selected = load_selected("e4", output_dir)
+
+    # Class distrubution from training data only.
+    n_positive = int(splits.y_train.sum())
+    n_negative = int(splits.y_train) - n_positive
+
+    balanced_weight = n_negative / n_positive
+
+    # Positive-class weights to compare
+    weights = [1.0, 2.0, 3.0, 5.0, balanced_weight]
+
+    rows = []
+
+    # Validation data is used only for evalution
+    X_val = torch.tensor(
+        splits.X_validation,
+        dtype = torch.float32,
+    )
+
+    y_true = splits.y_validation
+
+    for weight in weights:
+        for seed in seeds:
+
+            config = replace(
+                selected,
+                pos_weight=weight,
+                max_epochs=base.max_epochs,
+                patience=base.patience,
+            )
+
+            # Train using the existing training function.
+            result = train_model(
+                config,
+                splits,
+                seed=seed,
+            )
+
+            model = result["model"]
+            model.eval()
+
+            # Predict purchase probabilities.
+            with torch.no_grad():
+                logits = model(X_val)
+                probabilities = (
+                    torch.sigmoid(logits)
+                    .cpu()
+                    .numpy()
+                    .ravel()
+                )
+
+            # Fixed classification threshold.
+            predictions = (
+                probabilities >= 0.5
+            ).astype(int)
+
+            # Calculate validation metrics.
+            ap = average_precision_score(
+                y_true,
+                probabilities,
+            )
+
+            precision = precision_score(
+                y_true,
+                predictions,
+                zero_division=0,
+            )
+
+            recall = recall_score(
+                y_true,
+                predictions,
+                zero_division=0,
+            )
+
+            f1 = f1_score(
+                y_true,
+                predictions,
+                zero_division=0,
+            )
+
+            rows.append({
+                "pos_weight": weight,
+                "seed": seed,
+                "AP": ap,
+                "precision": precision,
+                "recall": recall,
+                "F1": f1,
+                "best_epoch": result["best_epoch"],
+            })
+
+            print(
+                f"Weight={weight:.2f}, "
+                f"Seed={seed}, "
+                f"AP={ap:.4f}, "
+                f"Precision={precision:.4f}, "
+                f"Recall={recall:.4f}, "
+                f"F1={f1:.4f}"
+            )
+
+    # Save all individual runs.
+    output_dir.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    results = pd.DataFrame(rows)
+
+    results.to_csv(
+        output_dir / "e5_runs.csv",
+        index=False,
+    )
+
+    # Aggregate results across seeds.
+    summary = (
+        results
+        .groupby("pos_weight")
+        .agg(
+            mean_AP=("AP", "mean"),
+            std_AP=("AP", "std"),
+            mean_precision=("precision", "mean"),
+            mean_recall=("recall", "mean"),
+            mean_F1=("F1", "mean"),
+            mean_best_epoch=("best_epoch", "mean"),
+        )
+        .reset_index()
+    )
+
+    summary.to_csv(
+        output_dir / "e5_summary.csv",
+        index=False,
+    )
+
+    print("\nE5 SUMMARY")
+    print(summary.to_string(index=False))
+
+STAGES = {"e2": stage_e2, "e3": stage_e3, "e4": stage_e4, "e4curve": stage_e4_curve, "diag": stage_diag, "e5": stage_e5}
 
 
 def main() -> None:
@@ -314,7 +459,7 @@ def main() -> None:
 
     splits = prepare_data()
     # e4 already runs e4curve at the end, so "all" does not list it separately.
-    stages = ["e2", "e3", "e4", "diag"] if args.stage == "all" else [args.stage]
+    stages = ["e2", "e3", "e4", "diag", "e5"] if args.stage == "all" else [args.stage]
     for stage in stages:
         print(f"\n===== Stage {stage} =====")
         STAGES[stage](splits, seeds, output_dir, base)
