@@ -1,0 +1,29 @@
+{
+  "stage": "e0",
+  "name": "log1p",
+  "reason": "log1p mean AP 0.7205 >= 0.7135 (standard mean plus one SD)",
+  "mean_ap": 0.7205306586878433,
+  "sd_ap": 0.0023622286433047923,
+  "config": {
+    "hidden_sizes": [
+      32
+    ],
+    "activation": "relu",
+    "dropout": 0.0,
+    "optimizer": "sgd",
+    "learning_rate": 0.1,
+    "momentum": 0.0,
+    "weight_decay": 0.0001,
+    "scheduler": "none",
+    "batch_size": 64,
+    "max_epochs": 200,
+    "patience": 20,
+    "pos_weight": null
+  },
+  "log_features": [
+    "PageValues",
+    "Administrative_Duration",
+    "Informational_Duration",
+    "ProductRelated_Duration"
+  ]
+}
