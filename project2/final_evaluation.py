@@ -6,7 +6,7 @@ validation sets, then evaluated once on the held-out test set.
 
 All model settings must be finalized before test evaluation.
 """
-
+import argparse
 import json
 from math import sqrt
 from pathlib import Path
@@ -249,6 +249,66 @@ def wilson_confidence_interval(errors, total, z=1.96):
 
     return center - margin, center + margin
 
+def bootstrap_ap_confidence_interval(
+    y_true,
+    probabilities,
+    n_bootstrap=2000,
+    confidence=0.95,
+    seed=42,
+):
+    """Calculate a bootstrap confidence interval for AP."""
+
+    rng = np.random.default_rng(seed)
+
+    y_true = np.asarray(y_true)
+    probabilities = np.asarray(probabilities)
+
+    n_samples = len(y_true)
+    bootstrap_scores = []
+
+    for _ in range(n_bootstrap):
+
+        # Sample test observations with replacement.
+        indices = rng.choice(
+            n_samples,
+            size=n_samples,
+            replace=True,
+        )
+
+        y_sample = y_true[indices]
+        p_sample = probabilities[indices]
+
+        # AP requires both classes.
+        if len(np.unique(y_sample)) < 2:
+            continue
+
+        ap = average_precision_score(
+            y_sample,
+            p_sample,
+        )
+
+        bootstrap_scores.append(ap)
+
+    if len(bootstrap_scores) < 2:
+        raise ValueError(
+            "Too few valid bootstrap samples."
+        )
+
+    alpha = 1 - confidence
+
+    lower = np.percentile(
+        bootstrap_scores,
+        100 * alpha / 2,
+    )
+
+    upper = np.percentile(
+        bootstrap_scores,
+        100 * (1 - alpha / 2),
+    )
+
+    return float(lower), float(upper)
+
+
 
 def evaluate_final_model(model, final_data):
     """Evaluate the final model on the held-out test set.
@@ -329,8 +389,15 @@ def evaluate_final_model(model, final_data):
         total,
     )
 
+    ap_ci_lower, ap_ci_upper = bootstrap_ap_confidence_interval(
+    y_true,
+    probabilities,
+)
+
     results = {
         "AP": float(ap),
+        "AP_CI_lower": float(ap_ci_lower),
+        "AP_CI_upper": float(ap_ci_upper),
         "ROC_AUC": float(roc_auc),
         "accuracy": float(accuracy),
         "balanced_accuracy": float(balanced_accuracy),
@@ -422,20 +489,81 @@ def save_final_results(
     print("Output directory:", output_dir)
 
 
+
 def main():
+    parser = argparse.ArgumentParser(
+        description="Final MLP training and evaluation"
+    )
+
+    parser.add_argument(
+        "--run-final",
+        action="store_true",
+        help="Train and evaluate the final model on the test set",
+    )
+
+    args = parser.parse_args()
+
     print("=== FINAL MODEL CONFIGURATION ===")
 
     log_features = load_final_preprocessing()
     model_config = load_model_config()
-    final_data = prepare_final_dataset(log_features)
+
+    expected_log_features = {
+    "PageValues",
+    "Administrative_Duration",
+    "Informational_Duration",
+    "ProductRelated_Duration",
+}
+
+    if set(log_features) != expected_log_features:
+        raise ValueError(
+            "Unexpected preprocessing configuration."
+        )
+        
+
+    # Verify the agreed final model configuration.
+    assert model_config["hidden_sizes"] == [32]
+    assert model_config["activation"] == "relu"
+    assert model_config["optimizer"] == "sgd"
+    assert model_config["learning_rate"] == 0.1
+    assert model_config["momentum"] == 0
+    assert model_config["weight_decay"] == 0.0001
+    assert model_config["dropout"] == 0
 
     print("\nFinal training settings:")
     print("Epochs:", FINAL_EPOCHS)
     print("Positive class weight:", POS_WEIGHT)
     print("Classification threshold:", CLASSIFICATION_THRESHOLD)
 
-    print("\nConfiguration loaded successfully.")
-    print("No model has been trained or evaluated.")
+    if not args.run_final:
+        print("\nConfiguration check completed.")
+        print("No model has been trained or evaluated.")
+        return
+
+    # Prepare the final dataset.
+    final_data = prepare_final_dataset(log_features)
+
+    # Train the selected model on train + validation.
+    model = train_final_model(
+        final_data,
+        model_config,
+    )
+
+    # Evaluate once on the held-out test set.
+    results, y_true, probabilities, predictions = (
+        evaluate_final_model(model, final_data)
+    )
+
+    # Save metrics and figures.
+    save_final_results(
+        results,
+        y_true,
+        probabilities,
+        predictions,
+    )
+
+    print("\nFinal evaluation completed.")
+
 
 
 if __name__ == "__main__":
