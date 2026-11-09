@@ -3,3 +3,6 @@ __pycache__/
 *.pyc
 .vscode/
 project1.zip
+# Python virtual environment
+venv/
+
