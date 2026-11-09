@@ -1,0 +1,8 @@
+{
+  "xgboost_params": {
+    "n_estimators": 300,
+    "learning_rate": 0.01,
+    "max_depth": 5
+  },
+  "validation_ap": 0.7293651829422235
+}

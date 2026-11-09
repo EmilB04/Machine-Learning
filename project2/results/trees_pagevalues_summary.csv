@@ -1,0 +1,7 @@
+input,model,n_inputs,validation_ap
+with PageValues,CART,73,0.693828540972348
+with PageValues,Random Forest,73,0.731714981884356
+with PageValues,XGBoost,73,0.7212684348813219
+without PageValues,CART,72,0.3473321898279647
+without PageValues,Random Forest,72,0.38052631248321456
+without PageValues,XGBoost,72,0.3852289901276878
